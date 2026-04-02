@@ -189,5 +189,17 @@ corr_results$P
 # However, the strength of the relationships varies.
 
 # xts is a time series object, not a dataframe, so the syntax is different
-corr_test <- cor.test(returns[, "AAPL"], returns[, "MSFT"])
-corr_test
+stock_pairs <- combn(stocks, 2, simplify = FALSE)
+
+correlation_calc <- function(data, stocks) {
+  for (stock_pair in stocks) {
+    corr_test <- cor.test(data[, stock_pair[1]], data[, stock_pair[2]])
+    cat(
+      "Correlation of ", stock_pair[1], " and ", stock_pair[2], ":\n ", 
+      " r = ", round(corr_test$estimate, 2),
+      "| p-value = ", signif(corr_test$p.value, 2), "\n\n"
+    )
+  }
+}
+
+correlation_calc(returns, stock_pairs)
