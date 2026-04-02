@@ -15,14 +15,16 @@ library(viridis)
 library(car)
 library(Hmisc)
 
-# 10 stocks with 3 sectors
+# 13 stocks with 4 sectors
 # Apple Inc., Microsoft, NVIDIA for the tech sector
 # BP, Shell plc, and ExxonMobile for the energy sector
 # HSBC, Barclays, JPMorgan Chase, and GoldmanSachs for the finance sector
+# Johnson & Johnson, Pfizer, UnitedHealth Group for the healthcare sector
 
 stocks <- c("AAPL", "MSFT", "NVDA",     # Tech
             "BP", "SHEL", "XOM",        # Energy
-            "HSBC", "BCS", "JPM", "GS") # Finance
+            "HSBC", "BCS", "JPM", "GS", #Finance
+            "JNJ", "PFE", "UNH") # Healthcare
 
 getSymbols(stocks, 
            src = "yahoo",
@@ -40,7 +42,8 @@ sector <- data.frame(
   Stock = stocks,
   Sector = c("Tech", "Tech", "Tech",
              "Energy", "Energy", "Energy",
-             "Finance", "Finance", "Finance", "Finance")
+             "Finance", "Finance", "Finance", "Finance",
+             "Healthcare", "Healthcare", "Healthcare")
 )
 
 returns <- na.omit(ROC(prices, type = "discrete"))
@@ -90,6 +93,16 @@ lapply(sector_pairs, function(pair) {
   print(plot_sector_comparison(cumulative_long, pair))
 })
 
+returns_df <- data.frame(date = index(returns), coredata(returns)) %>%
+  pivot_longer(-date, names_to = "Stock", values_to = "Return") %>%
+  left_join(sector, by = "Stock")
+
+ggplot(returns_df, aes(x = Stock, y = Return, fill = Sector)) +
+  geom_boxplot() +
+  labs(title = "Daily Returns Distribution by Stock") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
 # Mean returns
 mean_returns <- apply(returns, 2, mean)
 
@@ -99,10 +112,10 @@ summary_table <- data.frame(
   Avg_Return = mean_returns
 )
 
-summary_table_sorted <- summary_table %>%
+summary_table_sorted_by_returns <- summary_table %>%
   arrange(desc(Avg_Return))
 
-summary_table_sorted
+summary_table_sorted_by_returns
 
 # ANOVA testing
 anova_result <- aov(Return ~ Sector, data = returns_df)
@@ -118,20 +131,10 @@ volatility
 
 summary_table$Volatility <- volatility
 
-summary_table_sorted <- summary_table %>%
+summary_table_sorted_by_volatility <- summary_table %>%
   arrange(desc(Volatility))
 
-summary_table_sorted
-
-returns_df <- data.frame(date = index(returns), coredata(returns)) %>%
-  pivot_longer(-date, names_to = "Stock", values_to = "Return") %>%
-  left_join(sector, by = "Stock")
-
-ggplot(returns_df, aes(x = Stock, y = Return, fill = Sector)) +
-  geom_boxplot() +
-  labs(title = "Daily Returns Distribution by Stock") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+summary_table_sorted_by_volatility
 
 # Levene's test
 leveneTest(Return ~ Sector, data = returns_df)
@@ -193,7 +196,9 @@ stock_pairs <- combn(stocks, 2, simplify = FALSE)
 
 correlation_calc <- function(data, stocks) {
   for (stock_pair in stocks) {
-    corr_test <- cor.test(data[, stock_pair[1]], data[, stock_pair[2]])
+    corr_test <- suppressWarnings(
+      cor.test(data[, stock_pair[1]], data[, stock_pair[2]])
+      )
     cat(
       "Correlation of ", stock_pair[1], " and ", stock_pair[2], ":\n ", 
       " r = ", round(corr_test$estimate, 2),
