@@ -143,6 +143,12 @@ leveneTest(Return ~ Sector, data = returns_df)
 # Section C: Trends and Market Reactions
 library(zoo)
 
+# Rolling 30 refers to an analysis metric that is continuously updated to reflect
+# the most recent 30 trading days of data. It is used to smooth out noise and 
+# identify trends.
+# The way it works is like a moving window. For example, rolling 30 on Day 30 
+# refers to the average of days between 1-30, then rolling 30 on Day 31 refers
+# the average of days between 2-31, and so on.
 rolling_avg <- prices %>%
   na.omit() %>%
   as.data.frame() %>%
@@ -191,7 +197,7 @@ corr_results$P
 # unlikely due to chance.
 # However, the strength of the relationships varies.
 
-# xts is a time series object, not a dataframe, so the syntax is different
+
 stock_pairs <- combn(stocks, 2, simplify = FALSE)
 
 correlation_calc <- function(data, stocks) {
@@ -208,3 +214,96 @@ correlation_calc <- function(data, stocks) {
 }
 
 correlation_calc(returns, stock_pairs)
+
+
+# Section E: Portfolio optimization
+# The Sharpe ratio measures the performance of an investment compared to a 
+# risk-free asset, after adjusting for its risk
+returns_matrix <- na.omit(returns)
+
+mean_returns <- colMeans(returns_matrix)
+
+cov_matrix <- cov(returns_matrix)
+
+# Monte Carlo simulation using 5000 as the number of simulations
+set.seed(123)
+
+num_portfolios <- 5000
+num_assets <- ncol(returns_matrix)
+
+results <- matrix(NA, nrow = num_portfolios, ncol = 3)
+weights_list <- list()
+
+for (i in 1:num_portfolios) {
+  weights <- runif(num_assets)
+  weights <- weights / sum(weights)
+  
+  weights_list[[i]] <- weights
+  
+  portfolio_return <- sum(weights * mean_returns)
+  
+  portfolio_risk <- sqrt(t(weights) %*% cov_matrix %*% weights)
+  
+  sharpe <- portfolio_return / portfolio_risk
+  
+  results[i, ] <- c(portfolio_return, portfolio_risk, sharpe)
+}
+
+results_df <- data.frame(
+  Return = results[,1],
+  Risk = results[,2],
+  Sharpe = results[,3]
+)
+
+ggplot(results_df, aes(x = Risk, y = Return, color = Sharpe)) +
+  geom_point(alpha = 0.6) +
+  scale_color_viridis_c() +
+  labs(title = "Efficient Frontier",
+       x = "Risk (Volatility)",
+       y = "Expected Return") +
+  theme_minimal()
+
+# Each dot represents a portfolio. The left represents low risk, and the top 
+# represents high returns. The ideal portfolio is the one closest the top left
+
+max_sharpe_index <- which.max(results_df$Sharpe)
+
+optimal_weights <- weights_list[[max_sharpe_index]]
+
+optimal_weights
+
+optimal_portfolio <- data.frame(
+  Stock = colnames(returns_matrix),
+  Weight = optimal_weights
+)
+
+optimal_portfolio
+
+# optimal_portfolio shows which stocks dominate the optimal mix
+
+# weight refers to the proportion of the total investment in that stock.
+# The weight is based on factors such as returns and risks, so higher weights 
+# imply better risk-return trade-off of those criteria.
+# For example, if you funded £1,000, then for AAPL, you would invest ~0.19, 
+# which means investing £190 approximately. In this context, all the stocks' 
+# weights add up to 1
+
+optimal_point <- results_df[max_sharpe_index, ]
+
+ggplot(results_df, aes(x = Risk, y = Return)) +
+  geom_point(alpha = 0.4) +
+  geom_point(data = optimal_point, 
+             aes(x = Risk, y = Return),
+             size = 4) +
+  labs(title = "Efficient Frontier with Optimal Portfolio") +
+  theme_minimal()
+
+optimal_portfolio %>%
+  left_join(sector, by = "Stock") %>%
+  group_by(Sector) %>%
+  summarise(Total_Weight = sum(Weight)) %>%
+  arrange(desc(Total_Weight))
+
+# The optimisation results allocate higher weights to technology and healthcare 
+# stocks, suggesting that these sectors offer a more favourable risk-return 
+# trade-off within the sample period
