@@ -50,6 +50,7 @@ returns <- na.omit(ROC(prices, type = "discrete"))
 
 cumulative_returns <- cumprod(1 + returns)
 
+# Cumulative returns in long format
 cumulative_long <- data.frame(date = index(cumulative_returns), 
                               coredata(cumulative_returns)) %>%
   pivot_longer(cols = -date, names_to = "Stock", values_to = "Value") %>%
@@ -307,3 +308,17 @@ optimal_portfolio %>%
 # The optimisation results allocate higher weights to technology and healthcare 
 # stocks, suggesting that these sectors offer a more favourable risk-return 
 # trade-off within the sample period
+
+
+# Export to CSV
+cumulative_long$date <- as.Date(cumulative_long$date)
+sum(is.na(cumulative_long$Sector))
+
+summary_table <- summary_table %>%
+  mutate(Sharpe = Avg_Return / Volatility)
+
+write.csv(cumulative_long, "data/cumulative_long.csv", row.names = FALSE)
+
+write.csv(returns_df, "data/returns_df.csv", row.names = FALSE)
+
+write.csv(optimal_portfolio, "data/optimal_portfolio.csv", row.names = FALSE)
