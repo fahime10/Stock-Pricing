@@ -15,39 +15,34 @@ library(viridis)
 library(car)
 library(Hmisc)
 
-# 13 stocks with 4 sectors
-# Apple Inc., Microsoft, NVIDIA for the tech sector
-# BP, Shell plc, and ExxonMobile for the energy sector
-# HSBC, Barclays, JPMorgan Chase, and GoldmanSachs for the finance sector
-# Johnson & Johnson, Pfizer, UnitedHealth Group for the healthcare sector
-
-stocks <- c("AAPL", "MSFT", "NVDA",     # Tech
-            "BP", "SHEL", "XOM",        # Energy
-            "HSBC", "BCS", "JPM", "GS", #Finance
-            "JNJ", "PFE", "UNH") # Healthcare
+# Using sector ETFs to represent the whole market
+stocks <- c("XLK",      # Tech
+            "XLE",      # Energy
+            "XLF",      # Finance
+            "XLV")      # Healthcare
 
 getSymbols(stocks, 
            src = "yahoo",
            from = "2000-01-01",
            to = "2026-01-01")
 
-View(AAPL)
-
+# Merge the adjusted prices
 prices <- do.call(merge, lapply(stocks, function(x) Ad(get(x))))
-
 colnames(prices) <- stocks
 
 # Section A: Performance of each sector and returns
 sector <- data.frame(
   Stock = stocks,
-  Sector = c("Tech", "Tech", "Tech",
-             "Energy", "Energy", "Energy",
-             "Finance", "Finance", "Finance", "Finance",
-             "Healthcare", "Healthcare", "Healthcare")
+  Sector = c("Tech", 
+             "Energy",
+             "Finance",
+             "Healthcare")
 )
 
+# Daily returns
 returns <- na.omit(ROC(prices, type = "discrete"))
 
+# £1 growth calculation
 cumulative_returns <- cumprod(1 + returns)
 
 # Cumulative returns in long format
@@ -60,13 +55,13 @@ sum(is.na(cumulative_long$Sector))
 
 sector_performance <- cumulative_long %>%
   group_by(date, Sector) %>%
-  summarise(Value = mean(Value), .groups = "drop")
+  summarise(Value = median(Value), .groups = "drop")
 
 ggplot(sector_performance, aes(x = date, y = Value, color = Sector)) +
-  geom_line(size = 1.1) +
+  geom_line() +
   labs(title = "Sector Performance Comparison", y = "Growth of £1 investment") +
   theme_minimal()
-# Tech sector is showing a relatively steeper line
+
 
 # Compare two sectors at a time
 unique_sectors <- unique(cumulative_long$Sector)
@@ -94,6 +89,7 @@ lapply(sector_pairs, function(pair) {
   print(plot_sector_comparison(cumulative_long, pair))
 })
 
+# Daily returns
 returns_df <- data.frame(date = index(returns), coredata(returns)) %>%
   pivot_longer(-date, names_to = "Stock", values_to = "Return") %>%
   left_join(sector, by = "Stock")
@@ -121,10 +117,23 @@ summary_table_sorted_by_returns
 # ANOVA testing
 anova_result <- aov(Return ~ Sector, data = returns_df)
 summary(anova_result)
-# p-value < 0.05, so sectors are significantly different
+# A result of 0.99 is suspicious, and likely because daily returns can be very 
+# noisy 
 
-# Tukey test
-TukeyHSD(anova_result)
+monthly_prices <- to.monthly(prices, indexAt = "lastof", OHCL = FALSE)
+colnames(monthly_prices) <- colnames(prices)
+monthly_returns <- na.omit(ROC(monthly_prices, type = "discrete"))
+
+monthly_returns_df <- data.frame(date = index(monthly_returns), 
+                                 coredata(monthly_returns)) %>%
+  pivot_longer(-date, names_to = "Stock", values_to = "Return") %>%
+  left_join(sector, by = "Stock")
+
+anova_result <- aov(Return ~ Sector, data = monthly_returns_df)
+summary(anova_result)
+# p-value remained at 0.99, which is the same as the daily returns.
+# This tells us that the sectors move at the same average speed, but the a 
+# Levene's test may help explain whether variances are significantly different
 
 # Section B: Risk and Volatility
 volatility <- apply(returns, 2, sd)
@@ -140,6 +149,9 @@ summary_table_sorted_by_volatility
 # Levene's test
 leveneTest(Return ~ Sector, data = returns_df)
 # p < 0.05, so volatility is significantly different across sectors
+# In ANOVA, the means are very similar, but in the Levene test, the variances 
+# are significantly different. The primary differentiator between these sectors
+# is not the average returns, but their volatility.
 
 # Section C: Trends and Market Reactions
 library(zoo)
@@ -165,16 +177,40 @@ ggplot(rolling_avg, aes(x = Date, y = Rolling30, color = Stock)) +
   theme_minimal()
 
 # Examine an event like COVID
-returns_df$Period <- ifelse(
-  returns_df$date < "2020-03-01", "Pre-COVID", "Post-Covid"
-  )
+covid_growth <- returns_df %>%
+  filter(date >= "2019-06-01" & date <= "2020-12-31") %>%
+  group_by(Sector) %>%
+  mutate(Period = ifelse(date < "2020-03-01", "Pre-Shock", "Post-Shock")) %>%
+  mutate(Growth = cumprod(1 + Return))
+
+ggplot(covid_growth, aes(x = date, y = Growth, color = Sector)) +
+  geom_line() +
+  geom_vline(xintercept = as.numeric(as.Date("2020-03-01")), 
+             linetype = "dashed",
+             color = "red") +
+  labs(title = "The COVID-19 Crash & Recovery",
+       subtitle = "Value of £1 invested in June 2019",
+       y = "Investment value") +
+  theme_minimal()
+# The graph shows that the shock from COVID-19 has affected all sectors at 
+# roughly the same time. Tech and healthcare sectors showed a V-shaped recovery,
+# surpassing pre-pandemic levels within months, whereas energy and Finance 
+# suffered U-shaped recoveries. This highlights that market reactions to 
+# systemic shocks are highly sector dependent
+
 # t-test
-t_test_result <- t.test(Return ~ Period, data = returns_df)
-t_test_result
+t_test_result_covid <- t.test(Return ~ Period, data = covid_growth)
+t_test_result_covid
+# While the graph may say that a lot has changed, and while the p-value in the 
+# t-test is > 0.05, the interpretation is that COVID-19 was a volatility event 
+# rather than a mean-shift event, meaning that the market's average speed 
+# remained similar, but its variance and path were fundamentally altered
+# Overall, the trend has remained the same (upwards), but what changed was the 
+# value it was starting at. It was a price shock rather than a trend shift.
+
 
 # Section D: Correlation and Diversification
 corr_matrix <- cor(returns)
-View(corr_matrix)
 
 corr_df <- melt(corr_matrix)
 
@@ -186,8 +222,7 @@ ggplot(corr_df, aes(Var1, Var2, fill = value)) +
                        high = "red", 
                        midpoint = 0.5) +
   labs(title = "Stock Correlation Matrix") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  theme_minimal()
 
 # Test to see correlation significance among stocks
 corr_results <- rcorr(as.matrix(returns))
@@ -215,7 +250,16 @@ correlation_calc <- function(data, stocks) {
 }
 
 correlation_calc(returns, stock_pairs)
-
+# The Tech and Energy sectors have a weak positive correlation (r = 0.46), 
+# which means that if the Tech sector was to be affected, it will not impact 
+# the Energy sector as much.
+# The highest correlation (r = 0.65) is found between the Tech and Healthcare 
+# sectors, suggesting that they react similarly to market events.
+# Weak correlation can be a good thing when considering to diversify a portfolio
+# because if you invested in the Tech sector, and then invested in the Energy 
+# sector, if something happens that affect the Tech negatively, at least you may
+# have the Energy sector stocks that will not be affected as much as it retains
+# its value
 
 # Section E: Portfolio optimization
 # The Sharpe ratio measures the performance of an investment compared to a 
@@ -304,10 +348,13 @@ optimal_portfolio %>%
   group_by(Sector) %>%
   summarise(Total_Weight = sum(Weight)) %>%
   arrange(desc(Total_Weight))
-
-# The optimisation results allocate higher weights to technology and healthcare 
-# stocks, suggesting that these sectors offer a more favourable risk-return 
-# trade-off within the sample period
+# The optimal portfolio suggests to invest more into healthcare.
+# Tech and Healthcare have a strong correlation, however, if you have invested
+# in Healthcare, to diversify, you should not pick Tech along with it or place
+# heavy investments in Tech. This is due to its volatility, unless you plan to 
+# invest in companies that are doing really well like Apple and Microsoft.
+# People don't stop using Windows or iPhones during recessions, and that is why 
+# they will still do well in an event of a market shock.
 
 
 # Export to CSV
@@ -319,6 +366,6 @@ summary_table <- summary_table %>%
 
 write.csv(cumulative_long, "data/cumulative_long.csv", row.names = FALSE)
 
-write.csv(returns_df, "data/returns_df.csv", row.names = FALSE)
+write.csv(summary_table, "data/summary_table.csv", row.names = FALSE)
 
 write.csv(optimal_portfolio, "data/optimal_portfolio.csv", row.names = FALSE)
